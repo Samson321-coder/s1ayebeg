@@ -258,6 +258,26 @@ def get_listing_status_from_row(item):
     return None
 
 
+def get_listing_transaction_id_from_row(item):
+    """Return the transaction_id for a DB row, supporting all schema variations."""
+    if item is None:
+        return None
+
+    if isinstance(item, dict):
+        return item.get("transaction_id")
+
+    if not isinstance(item, (list, tuple)):
+        return None
+
+    # Current schema: index 11 = transaction_id
+    # Older/migrated rows may still use variant offsets.
+    for index in (11, 10, 12, 13):
+        if len(item) > index and item[index] is not None:
+            return item[index]
+
+    return None
+
+
 def _create_pending_submission(context, owner_id, title, location, price, photos_str, contact, fee_amount, listing_type, property_purpose):
     """Create a pending submission record that is only promoted after admin approval."""
     return database.add_listing(
@@ -1357,7 +1377,8 @@ async def send_listing_page(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         status_value = get_listing_status_from_row(item)
         status_text = status_map.get(status_value, status_value or "Unknown")
 
-        tx_val = item[10] if len(item) > 10 and item[10] else ""
+        tx_val = get_listing_transaction_id_from_row(item) or ""
+        tx_val = str(tx_val) if tx_val is not None else ""
         if tx_val.startswith("photo:"):
             tx_info = "\n🎫 TXID: [ክፍያ ስክሪንሾት (Screenshot)]"
         else:
@@ -1436,8 +1457,10 @@ async def send_listing_page(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
     photo_ids = item[5].split(",") if item[5] else []
 
-    if is_admin and len(item) > 10 and item[10] and item[10].startswith("photo:"):
-        payment_photo = item[10].split(":", 1)[1]
+    tx_val = get_listing_transaction_id_from_row(item)
+    tx_val = str(tx_val) if tx_val is not None else ""
+    if is_admin and tx_val.startswith("photo:"):
+        payment_photo = tx_val.split(":", 1)[1]
         photo_ids.append(payment_photo)
 
     chat_id = update.effective_chat.id

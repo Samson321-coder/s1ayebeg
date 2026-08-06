@@ -2,7 +2,14 @@ import asyncio
 import os
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
+
+try:
+    from unittest.mock import AsyncMock
+except ImportError:
+    class AsyncMock(unittest.mock.Mock):
+        async def __call__(self, *args, **kwargs):
+            return super().__call__(*args, **kwargs)
 
 os.environ.setdefault("BOT_TOKEN", "dummy-token")
 
@@ -171,6 +178,44 @@ class EnhancementTests(unittest.TestCase):
 
             sent_text = bot.send_message.await_args.kwargs["text"]
             self.assertIn("ኪራይ", sent_text)
+
+        asyncio.run(run_test())
+
+    def test_send_listing_page_handles_numeric_transaction_id_without_crash(self):
+        async def run_test():
+            listing = (
+                1,
+                100,
+                "Luxury Home",
+                "አዲስ አበባ - ቦሌ",
+                "5000",
+                None,
+                "0911000000",
+                "sell",
+                "2026-01-01 12:00:00",
+                "paid",
+                0.0,
+                12345,
+                None,
+                "property",
+            )
+            update = SimpleNamespace(
+                effective_user=SimpleNamespace(id=100),
+                effective_chat=SimpleNamespace(id=200),
+            )
+            bot = SimpleNamespace(
+                send_photo=AsyncMock(),
+                send_message=AsyncMock(),
+                send_media_group=AsyncMock(),
+            )
+            context = SimpleNamespace(
+                user_data={"current_listings": [listing], "is_for_owner": False},
+                bot=bot,
+            )
+
+            await main.send_listing_page(update, context, 0)
+
+            bot.send_message.assert_called_once()
 
         asyncio.run(run_test())
 
