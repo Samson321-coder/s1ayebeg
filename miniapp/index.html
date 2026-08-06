@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gebeya Gallery</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: Arial, sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #0f172a, #1e293b);
+      padding: 16px;
+      box-sizing: border-box;
+    }
+
+    .card {
+      width: min(100%, 560px);
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 20px;
+      padding: 20px;
+      box-shadow: 0 20px 45px rgba(0,0,0,0.25);
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 1.2rem;
+      text-align: center;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #cbd5e1;
+      margin-bottom: 16px;
+      font-size: 0.95rem;
+    }
+
+    .viewer {
+      position: relative;
+      border-radius: 16px;
+      overflow: hidden;
+      background: #020617;
+      min-height: 320px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .viewer img {
+      width: 100%;
+      height: auto;
+      max-height: 420px;
+      object-fit: contain;
+      display: none;
+    }
+
+    .viewer img.active {
+      display: block;
+    }
+
+    .nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 12px;
+      gap: 8px;
+    }
+
+    button {
+      border: none;
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-size: 0.95rem;
+      cursor: pointer;
+      background: #2563eb;
+      color: white;
+      min-width: 90px;
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .counter {
+      text-align: center;
+      flex: 1;
+      color: #e2e8f0;
+      font-weight: 600;
+    }
+
+    .empty {
+      color: #94a3b8;
+      text-align: center;
+      padding: 24px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>📸 Gallery</h1>
+    <div class="subtitle">Swipe or use the buttons below to browse photos.</div>
+    <div class="viewer" id="viewer">
+      <div class="empty" id="empty">Loading photos…</div>
+    </div>
+    <div class="nav">
+      <button id="prevBtn">← Prev</button>
+      <div class="counter" id="counter">0 / 0</div>
+      <button id="nextBtn">Next →</button>
+    </div>
+  </div>
+
+  <script>
+    const viewer = document.getElementById('viewer');
+    const empty = document.getElementById('empty');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const counter = document.getElementById('counter');
+
+    let photos = [];
+    let currentIndex = 0;
+
+    function parsePhotos() {
+      const params = new URLSearchParams(window.location.search);
+      const raw = params.get('photos');
+      if (!raw) return [];
+      return decodeURIComponent(raw).split('|').filter(Boolean);
+    }
+
+    function render() {
+      viewer.innerHTML = '';
+      if (!photos.length) {
+        viewer.appendChild(empty);
+        empty.textContent = 'No photos were provided.';
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+        counter.textContent = '0 / 0';
+        return;
+      }
+
+      const img = document.createElement('img');
+      img.src = photos[currentIndex];
+      img.alt = `Photo ${currentIndex + 1}`;
+      img.className = 'active';
+      viewer.appendChild(img);
+
+      counter.textContent = `${currentIndex + 1} / ${photos.length}`;
+      prevBtn.disabled = currentIndex === 0;
+      nextBtn.disabled = currentIndex === photos.length - 1;
+    }
+
+    function showNext() {
+      if (currentIndex < photos.length - 1) {
+        currentIndex += 1;
+        render();
+      }
+    }
+
+    function showPrev() {
+      if (currentIndex > 0) {
+        currentIndex -= 1;
+        render();
+      }
+    }
+
+    prevBtn.addEventListener('click', showPrev);
+    nextBtn.addEventListener('click', showNext);
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowRight') showNext();
+      if (event.key === 'ArrowLeft') showPrev();
+    });
+
+    let startX = 0;
+    viewer.addEventListener('touchstart', (event) => {
+      startX = event.touches[0].clientX;
+    }, { passive: true });
+
+    viewer.addEventListener('touchend', (event) => {
+      const endX = event.changedTouches[0].clientX;
+      const delta = endX - startX;
+      if (delta > 50) showPrev();
+      if (delta < -50) showNext();
+    }, { passive: true });
+
+    photos = parsePhotos();
+    render();
+  </script>
+</body>
+</html>

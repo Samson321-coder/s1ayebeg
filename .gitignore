@@ -1,0 +1,7 @@
+.env
+rental_bot.db
+bot_debug.log
+bot_output.log
+models_debug.txtbot_data.pickle
+bot_run.log
+__pycache__/
