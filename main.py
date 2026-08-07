@@ -278,6 +278,46 @@ def get_listing_transaction_id_from_row(item):
     return None
 
 
+def get_listing_created_at(item):
+    """Return the created_at date for a DB row, supporting fresh and migrated schema variations."""
+    if item is None:
+        return None
+
+    if isinstance(item, dict):
+        for key in ("created_at", "createdAt", "date", "registered_at"):
+            value = item.get(key)
+            if value not in (None, ""):
+                return value
+        return None
+
+    if hasattr(item, "keys"):
+        for key in ("created_at", "createdAt", "date", "registered_at"):
+            try:
+                value = item[key]
+            except Exception:
+                continue
+            if value not in (None, ""):
+                return value
+        return None
+
+    if isinstance(item, (list, tuple)):
+        for index in (8, 7, 9):
+            if len(item) <= index:
+                continue
+            value = item[index]
+            if isinstance(value, str) and value.strip():
+                text = value.strip()
+                if text in {"pending", "paid", "rented", "expired", "buy", "sell", "rent", "service", "property", "looking_for"}:
+                    continue
+                if text.startswith(("20", "19")) and ("-" in text or "/" in text or ":" in text):
+                    return text
+            elif isinstance(value, (int, float)):
+                continue
+        return None
+
+    return None
+
+
 def _create_pending_submission(context, owner_id, title, location, price, photos_str, contact, fee_amount, listing_type, property_purpose):
     """Create a pending submission record that is only promoted after admin approval."""
     return database.add_listing(
@@ -381,9 +421,13 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def timeout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Called when a conversation times out due to inactivity."""
-    if update and update.effective_message:
+    """Queue the timeout notice only for callback-button interactions."""
+    if not update:
+        return ConversationHandler.END
+
+    if getattr(update, "callback_query", None) is not None:
         context.user_data["pending_timeout_message"] = strings.TIMEOUT_MSG
+
     return ConversationHandler.END
 
 
@@ -1243,7 +1287,7 @@ async def _build_gallery_web_app_url(context, photo_ids):
     return f"{mini_app_url}{separator}photos={quote(joined_photos)}"
 
 
-def _is_public_gallery_url(url: str | None) -> bool:
+def _is_public_gallery_url(url):
     """Return True when a gallery URL is reachable by Telegram inline keyboard buttons."""
     if not url:
         return False
@@ -1284,6 +1328,7 @@ async def post_listing_to_channel(context, listing, listing_type_val, property_p
     listing_type_am = get_listing_type_display_name(listing_type_val, property_purpose_val, listing[2] if len(listing) > 2 else None)
     listing_type_title = get_listing_title(listing_type_val, property_purpose_val, listing[2] if len(listing) > 2 else None)
 
+    created_at = get_listing_created_at(listing) or "ያልተገለጸ"
     text = strings.LISTING_TEMPLATE.format(
         listing_type_title=listing_type_title,
         title=listing[2],
@@ -1291,7 +1336,7 @@ async def post_listing_to_channel(context, listing, listing_type_val, property_p
         price=listing[4],
         contact=listing[6],
         listing_type_am=listing_type_am,
-        date=listing[7],
+        date=created_at,
     )
 
     bot_username = (await context.bot.get_me()).username
@@ -1410,6 +1455,7 @@ async def send_listing_page(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             category_val = title_raw
             desc_val = "ያልተገለጸ"
 
+        created_at = get_listing_created_at(item) or "ያልተገለጸ"
         text = strings.LOOKING_FOR_LISTING_TEMPLATE.format(
             looking_for_title=get_looking_for_title(property_purpose_val),
             category=category_val,
@@ -1419,12 +1465,13 @@ async def send_listing_page(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             price=item[4] or "ያልተገለጸ",
             description=desc_val,
             contact=item[6] or "ያልተገለጸ",
-            date=item[7] or "ያልተገለጸ"
+            date=created_at
         ) + status_msg + page_indicator
     else:
         listing_type_am = get_listing_type_display_name(listing_type_val, property_purpose_val, item[2] if len(item) > 2 else None)
         listing_type_title = get_listing_title(listing_type_val, property_purpose_val, item[2] if len(item) > 2 else None)
 
+        created_at = get_listing_created_at(item) or "ያልተገለጸ"
         text = strings.LISTING_TEMPLATE.format(
             listing_type_title=listing_type_title,
             title=item[2],
@@ -1432,7 +1479,7 @@ async def send_listing_page(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             price=item[4],
             contact=item[6],
             listing_type_am=listing_type_am,
-            date=item[7]
+            date=created_at
         ) + status_msg + page_indicator
 
     nav_row = []
@@ -1831,7 +1878,7 @@ def run_health_check_server():
     server.serve_forever()
 
 
-def _normalize_webhook_url(webhook_url: str) -> tuple[str, str]:
+def _normalize_webhook_url(webhook_url):
     if not webhook_url.startswith("http"):
         webhook_url = f"https://{webhook_url}"
 
@@ -1842,7 +1889,7 @@ def _normalize_webhook_url(webhook_url: str) -> tuple[str, str]:
     return webhook_url, url_path
 
 
-def _resolve_webhook_url() -> str | None:
+def _resolve_webhook_url():
     webhook_url = (os.getenv("WEBHOOK_URL") or "").strip()
     if webhook_url:
         return webhook_url

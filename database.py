@@ -65,8 +65,10 @@ DB_ENGINE = os.getenv("DB_ENGINE", "").strip().lower()
 
 def use_postgres():
     """Return True when PostgreSQL should be used."""
-    if DB_ENGINE == "postgres":
-        if not DATABASE_URL:
+    db_engine = os.getenv("DB_ENGINE", "").strip().lower()
+    database_url = os.getenv("DATABASE_URL")
+    if db_engine == "postgres":
+        if not database_url:
             raise ValueError("DB_ENGINE=postgres requires DATABASE_URL to be set")
         if not POSTGRES_AVAILABLE:
             raise ImportError(
@@ -74,10 +76,10 @@ def use_postgres():
                 "Run 'pip install psycopg2-binary'"
             )
         return True
-    if DB_ENGINE == "sqlite":
+    if db_engine == "sqlite":
         return False
     # Backward compatible: use PostgreSQL when DATABASE_URL is present
-    return bool(DATABASE_URL and POSTGRES_AVAILABLE)
+    return bool(database_url and POSTGRES_AVAILABLE)
 
 
 def get_db_backend():
@@ -96,8 +98,9 @@ def _sqlite_connect():
 
 def get_db_connection():
     if use_postgres():
-        # Koyeb/Render sometimes use postgres://, but psycopg2 prefers postgresql://
-        url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+        database_url = os.getenv("DATABASE_URL", "")
+        # Koyeb/Render/Railway sometimes use postgres://, but psycopg2 prefers postgresql://
+        url = database_url.replace("postgres://", "postgresql://", 1)
         return psycopg2.connect(url)
     return _sqlite_connect()
 

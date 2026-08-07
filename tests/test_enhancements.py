@@ -1,4 +1,5 @@
 import asyncio
+import asyncio
 import os
 import unittest
 from types import SimpleNamespace
@@ -9,7 +10,22 @@ try:
 except ImportError:
     class AsyncMock(unittest.mock.Mock):
         async def __call__(self, *args, **kwargs):
-            return super().__call__(*args, **kwargs)
+            result = super().__call__(*args, **kwargs)
+            if asyncio.iscoroutine(result):
+                return await result
+            return result
+
+        def assert_awaited_once(self):
+            return self.assert_called_once()
+
+        def assert_not_awaited(self):
+            return self.assert_not_called()
+
+        def assert_awaited_with(self, *args, **kwargs):
+            return self.assert_called_with(*args, **kwargs)
+
+        def assert_awaited_once_with(self, *args, **kwargs):
+            return self.assert_called_once_with(*args, **kwargs)
 
 os.environ.setdefault("BOT_TOKEN", "dummy-token")
 
@@ -176,8 +192,47 @@ class EnhancementTests(unittest.TestCase):
 
             await main.send_listing_page(update, context, 0)
 
-            sent_text = bot.send_message.await_args.kwargs["text"]
+            sent_text = bot.send_message.call_args[1]["text"]
             self.assertIn("ኪራይ", sent_text)
+
+        asyncio.run(run_test())
+
+    def test_send_listing_page_uses_created_at_for_registration_date(self):
+        async def run_test():
+            listing = (
+                1,
+                100,
+                "Luxury Home",
+                "አዲስ አበባ - ቦሌ",
+                "5000",
+                None,
+                "0911000000",
+                "sell",
+                "2026-01-01 12:00:00",
+                "paid",
+                0,
+                None,
+                None,
+                "property",
+            )
+            update = SimpleNamespace(
+                effective_user=SimpleNamespace(id=100),
+                effective_chat=SimpleNamespace(id=200),
+            )
+            bot = SimpleNamespace(
+                send_photo=AsyncMock(),
+                send_message=AsyncMock(),
+                send_media_group=AsyncMock(),
+            )
+            context = SimpleNamespace(
+                user_data={"current_listings": [listing], "is_for_owner": False},
+                bot=bot,
+            )
+
+            await main.send_listing_page(update, context, 0)
+
+            sent_text = bot.send_message.call_args[1]["text"]
+            self.assertIn("📅 የተመዘገበበት፦ 2026-01-01 12:00:00", sent_text)
 
         asyncio.run(run_test())
 
@@ -219,27 +274,51 @@ class EnhancementTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_timeout_notice_is_deferred_until_next_start(self):
+    def test_timeout_notice_is_deferred_until_next_start_for_button_interactions(self):
         async def run_test():
-            reply_text = AsyncMock()
-            message = SimpleNamespace(reply_text=reply_text)
+            captured_messages = []
+
+            async def fake_reply_text(text, *args, **kwargs):
+                captured_messages.append(text)
+
+            message = SimpleNamespace(reply_text=fake_reply_text)
             update = SimpleNamespace(
                 effective_user=SimpleNamespace(id=100, username="user"),
                 message=message,
-                effective_message=message,
+                effective_message=None,
+                callback_query=SimpleNamespace(),
             )
             context = SimpleNamespace(user_data={}, bot=SimpleNamespace(), args=[])
 
             with patch.object(main, "is_subscribed", AsyncMock(return_value=True)):
                 await main.timeout_handler(update, context)
-                self.assertEqual(reply_text.await_count, 0)
-
                 await main.start(update, context)
 
-            self.assertEqual(reply_text.await_count, 2)
-            texts = [call.args[0] for call in reply_text.await_args_list]
-            self.assertIn(strings.TIMEOUT_MSG, texts)
-            self.assertIn(strings.WELCOME_MSG, texts)
+            self.assertEqual(captured_messages[0], strings.TIMEOUT_MSG)
+            self.assertEqual(captured_messages[1], strings.WELCOME_MSG)
+
+        asyncio.run(run_test())
+
+    def test_timeout_notice_is_not_queued_for_plain_text_messages(self):
+        async def run_test():
+            captured_messages = []
+
+            async def fake_reply_text(text, *args, **kwargs):
+                captured_messages.append(text)
+
+            update = SimpleNamespace(
+                effective_user=SimpleNamespace(id=100, username="user"),
+                message=SimpleNamespace(text="hello", reply_text=fake_reply_text),
+                effective_message=SimpleNamespace(text="hello", reply_text=fake_reply_text),
+                callback_query=None,
+            )
+            context = SimpleNamespace(user_data={}, bot=SimpleNamespace(), args=[])
+
+            await main.timeout_handler(update, context)
+            await main.start(update, context)
+
+            self.assertNotIn("pending_timeout_message", context.user_data)
+            self.assertEqual(captured_messages, [strings.WELCOME_MSG])
 
         asyncio.run(run_test())
 
@@ -310,9 +389,9 @@ class EnhancementTests(unittest.TestCase):
             bot.send_photo.assert_awaited_once()
             bot.send_media_group.assert_not_awaited()
             bot.send_message.assert_not_awaited()
-            sent_caption = bot.send_photo.await_args.kwargs["caption"]
+            sent_caption = bot.send_photo.call_args[1]["caption"]
             self.assertIn("📸 +1 ተጨማሪ ፎቶዎች", sent_caption)
-            reply_markup = bot.send_photo.await_args.kwargs["reply_markup"]
+            reply_markup = bot.send_photo.call_args[1]["reply_markup"]
             buttons = reply_markup.inline_keyboard
             self.assertEqual(buttons[0][0].url, "https://t.me/demo_bot?start=view_1")
 
