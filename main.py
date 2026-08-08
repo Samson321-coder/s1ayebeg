@@ -366,19 +366,43 @@ def mark_admin_action_processed(context, listing_id, action):
     return False
 
 
+async def check_and_send_timeout_notice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Send timeout notice only if pending_timeout_message is queued and interaction is NOT /start."""
+    if not update:
+        return False
+
+    eff_msg = getattr(update, "effective_message", None) or getattr(update, "message", None)
+    user_text = (getattr(eff_msg, "text", "") or "").strip()
+
+    if user_text.startswith("/start"):
+        context.user_data.pop("pending_timeout_message", None)
+        return False
+
+    pending_msg = context.user_data.pop("pending_timeout_message", None)
+    if pending_msg:
+        reset_conversation_state(context)
+        if eff_msg:
+            await eff_msg.reply_text(
+                pending_msg,
+                reply_markup=get_main_keyboard()
+            )
+        elif getattr(update, "callback_query", None) and update.callback_query.message:
+            await update.callback_query.message.reply_text(
+                pending_msg,
+                reply_markup=get_main_keyboard()
+            )
+        return True
+    return False
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"Received start command from {update.effective_user.id}")
     user = update.effective_user
     database.add_user(user.id, user.username)
 
-    pending_timeout_message = context.user_data.pop("pending_timeout_message", None)
+    # Discard any pending timeout message silently when /start is explicitly invoked
+    context.user_data.pop("pending_timeout_message", None)
     reset_conversation_state(context)
-
-    if pending_timeout_message:
-        await update.message.reply_text(
-            pending_timeout_message,
-            reply_markup=get_main_keyboard()
-        )
 
     if user.id in ADMIN_IDS:
         database.add_user(user.id, user.username, role='admin')
@@ -421,18 +445,18 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def timeout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Queue the timeout notice only for non-start interactions after timeout."""
+    """Queue and check timeout notice for interactions after timeout."""
     if not update:
         return ConversationHandler.END
 
-    user_text = getattr(update.message, "text", "")
-    if user_text == "/start":
-        return ConversationHandler.END
-
-    if getattr(update, "callback_query", None) is not None or user_text:
-        context.user_data["pending_timeout_message"] = strings.TIMEOUT_MSG
-
+    context.user_data["pending_timeout_message"] = strings.TIMEOUT_MSG
+    await check_and_send_timeout_notice(update, context)
     return ConversationHandler.END
+
+
+async def handle_post_timeout_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Catch-all message handler for post-timeout or unmatched non-command interactions."""
+    await check_and_send_timeout_notice(update, context)
 
 
 # ─── Subscription Callback ────────────────────────────────────────────────────
@@ -1546,6 +1570,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(log_msg)
     print(log_msg)
     await query.answer()
+
+    if await check_and_send_timeout_notice(update, context):
+        return
 
     # Subscription check
     if query.data == "check_subscription":

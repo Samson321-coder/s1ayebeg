@@ -274,32 +274,30 @@ class EnhancementTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_timeout_notice_is_deferred_until_next_start_for_button_interactions(self):
+    def test_start_after_timeout_discards_timeout_msg_and_shows_only_welcome(self):
         async def run_test():
             captured_messages = []
 
             async def fake_reply_text(text, *args, **kwargs):
                 captured_messages.append(text)
 
-            message = SimpleNamespace(reply_text=fake_reply_text)
             update = SimpleNamespace(
-                effective_user=SimpleNamespace(id=100, username="user"),
-                message=message,
-                effective_message=None,
-                callback_query=SimpleNamespace(),
+                effective_user=SimpleNamespace(id=777, username="user"),
+                message=SimpleNamespace(text="/start", reply_text=fake_reply_text),
+                effective_message=SimpleNamespace(text="/start", reply_text=fake_reply_text),
+                callback_query=None,
             )
-            context = SimpleNamespace(user_data={}, bot=SimpleNamespace(), args=[])
+            context = SimpleNamespace(user_data={"pending_timeout_message": strings.TIMEOUT_MSG}, bot=SimpleNamespace(), args=[])
 
             with patch.object(main, "is_subscribed", AsyncMock(return_value=True)):
-                await main.timeout_handler(update, context)
                 await main.start(update, context)
 
-            self.assertEqual(captured_messages[0], strings.TIMEOUT_MSG)
-            self.assertEqual(captured_messages[1], strings.WELCOME_MSG)
+            self.assertNotIn("pending_timeout_message", context.user_data)
+            self.assertEqual(captured_messages, [strings.WELCOME_MSG])
 
         asyncio.run(run_test())
 
-    def test_timeout_notice_is_queued_for_plain_text_messages(self):
+    def test_non_start_text_after_timeout_triggers_timeout_msg(self):
         async def run_test():
             captured_messages = []
 
@@ -312,13 +310,13 @@ class EnhancementTests(unittest.TestCase):
                 effective_message=SimpleNamespace(text="hello", reply_text=fake_reply_text),
                 callback_query=None,
             )
-            context = SimpleNamespace(user_data={}, bot=SimpleNamespace(), args=[])
+            context = SimpleNamespace(user_data={"pending_timeout_message": strings.TIMEOUT_MSG}, bot=SimpleNamespace(), args=[])
 
-            await main.timeout_handler(update, context)
-            await main.start(update, context)
+            handled = await main.check_and_send_timeout_notice(update, context)
 
-            self.assertEqual(context.user_data.get("pending_timeout_message"), None)
-            self.assertEqual(captured_messages, [strings.TIMEOUT_MSG, strings.WELCOME_MSG])
+            self.assertTrue(handled)
+            self.assertNotIn("pending_timeout_message", context.user_data)
+            self.assertEqual(captured_messages, [strings.TIMEOUT_MSG])
 
         asyncio.run(run_test())
 
@@ -330,7 +328,7 @@ class EnhancementTests(unittest.TestCase):
                 captured.append((text, kwargs))
 
             update = SimpleNamespace(
-                effective_user=SimpleNamespace(id=100, username="user"),
+                effective_user=SimpleNamespace(id=777, username="user"),
                 message=SimpleNamespace(text="/start", reply_text=fake_reply_text),
                 effective_message=SimpleNamespace(text="/start", reply_text=fake_reply_text),
                 callback_query=None,
@@ -362,7 +360,7 @@ class EnhancementTests(unittest.TestCase):
                 captured_messages.append(text)
 
             update = SimpleNamespace(
-                effective_user=SimpleNamespace(id=100, username="user"),
+                effective_user=SimpleNamespace(id=777, username="user"),
                 message=SimpleNamespace(text="/start", reply_text=fake_reply_text),
                 effective_message=SimpleNamespace(text="/start", reply_text=fake_reply_text),
                 callback_query=None,
