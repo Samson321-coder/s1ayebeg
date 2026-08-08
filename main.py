@@ -445,12 +445,9 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def timeout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Queue and check timeout notice for interactions after timeout."""
-    if not update:
-        return ConversationHandler.END
-
+    """Queue pending timeout notice when conversation times out, but do NOT send it yet."""
     context.user_data["pending_timeout_message"] = strings.TIMEOUT_MSG
-    await check_and_send_timeout_notice(update, context)
+    reset_conversation_state(context)
     return ConversationHandler.END
 
 
@@ -2092,6 +2089,7 @@ def main():
     application.add_handler(CommandHandler("pending", admin_pending))
     application.add_handler(CommandHandler("broadcast", broadcast_start))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_post_timeout_message))
 
     # Schedule daily listings checks
     job_queue = application.job_queue

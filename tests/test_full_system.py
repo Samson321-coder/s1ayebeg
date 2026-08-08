@@ -347,12 +347,17 @@ class FullSystemFunctionalityTests(unittest.TestCase):
             )
             context = SimpleNamespace(user_data={}, bot=SimpleNamespace(), args=[])
 
-            # 1. Timeout occurs on non-/start text update -> triggers TIMEOUT_MSG immediately
+            # 1. Timeout occurs silently -> sets pending_timeout_message without sending a message
             await main.timeout_handler(update, context)
+            self.assertEqual(captured, [])
+            self.assertEqual(context.user_data.get("pending_timeout_message"), strings.TIMEOUT_MSG)
+
+            # 2. Subsequent non-/start interaction triggers TIMEOUT_MSG
+            await main.handle_post_timeout_message(update, context)
             self.assertEqual(captured, [strings.TIMEOUT_MSG])
             self.assertNotIn("pending_timeout_message", context.user_data)
 
-            # 2. Explicit /start afterwards discards timeout notice and shows welcome
+            # 3. Explicit /start afterwards discards timeout notice and shows welcome
             captured.clear()
             update.message.text = "/start"
             update.effective_message.text = "/start"
