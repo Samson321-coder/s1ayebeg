@@ -421,11 +421,15 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def timeout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Queue the timeout notice only for callback-button interactions."""
+    """Queue the timeout notice only for non-start interactions after timeout."""
     if not update:
         return ConversationHandler.END
 
-    if getattr(update, "callback_query", None) is not None:
+    user_text = getattr(update.message, "text", "")
+    if user_text == "/start":
+        return ConversationHandler.END
+
+    if getattr(update, "callback_query", None) is not None or user_text:
         context.user_data["pending_timeout_message"] = strings.TIMEOUT_MSG
 
     return ConversationHandler.END
@@ -441,7 +445,6 @@ async def handle_check_subscription(update: Update, context: ContextTypes.DEFAUL
     subscribed = await is_subscribed(context.bot, user.id)
     if subscribed:
         await query.edit_message_text(strings.SUBSCRIBED_OK, parse_mode='HTML')
-        # Send main keyboard
         await context.bot.send_message(
             chat_id=user.id,
             text=strings.WELCOME_MSG,
@@ -1952,9 +1955,7 @@ def main():
 
         from telegram import BotCommand
         await application.bot.set_my_commands([
-            BotCommand("start", "🚀 ማውጫ"),
-            BotCommand("help", "ℹ️ መመሪያ"),
-            BotCommand("cancel", "❌ አቋርጥ")
+            BotCommand("start", "ጀምር")
         ])
 
         async def debug_all(update: Update, context: ContextTypes.DEFAULT_TYPE):

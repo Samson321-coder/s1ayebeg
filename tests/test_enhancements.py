@@ -299,7 +299,7 @@ class EnhancementTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_timeout_notice_is_not_queued_for_plain_text_messages(self):
+    def test_timeout_notice_is_queued_for_plain_text_messages(self):
         async def run_test():
             captured_messages = []
 
@@ -310,6 +310,61 @@ class EnhancementTests(unittest.TestCase):
                 effective_user=SimpleNamespace(id=100, username="user"),
                 message=SimpleNamespace(text="hello", reply_text=fake_reply_text),
                 effective_message=SimpleNamespace(text="hello", reply_text=fake_reply_text),
+                callback_query=None,
+            )
+            context = SimpleNamespace(user_data={}, bot=SimpleNamespace(), args=[])
+
+            await main.timeout_handler(update, context)
+            await main.start(update, context)
+
+            self.assertEqual(context.user_data.get("pending_timeout_message"), None)
+            self.assertEqual(captured_messages, [strings.TIMEOUT_MSG, strings.WELCOME_MSG])
+
+        asyncio.run(run_test())
+
+    def test_start_shows_welcome_and_main_menu(self):
+        async def run_test():
+            captured = []
+
+            async def fake_reply_text(text, *args, **kwargs):
+                captured.append((text, kwargs))
+
+            update = SimpleNamespace(
+                effective_user=SimpleNamespace(id=100, username="user"),
+                message=SimpleNamespace(text="/start", reply_text=fake_reply_text),
+                effective_message=SimpleNamespace(text="/start", reply_text=fake_reply_text),
+                callback_query=None,
+            )
+            context = SimpleNamespace(user_data={}, bot=SimpleNamespace(), args=[])
+
+            with patch.object(main, "is_subscribed", AsyncMock(return_value=True)):
+                await main.start(update, context)
+
+            self.assertEqual(len(captured), 1)
+            self.assertEqual(captured[0][0], strings.WELCOME_MSG)
+            reply_markup = captured[0][1]["reply_markup"]
+            keyboard_labels = [[button.text for button in row] for row in reply_markup.keyboard]
+            expected = [
+                [strings.ROLE_SELLER, strings.ROLE_LANDLORD],
+                [strings.ROLE_BUYER, strings.ROLE_RENTER],
+                [strings.ROLE_SERVICE_PROVIDER, strings.ROLE_SERVICE_SEEKER],
+                [strings.HELP_BTN],
+            ]
+            self.assertEqual(keyboard_labels, expected)
+
+        asyncio.run(run_test())
+
+    def test_timeout_notice_is_not_queued_for_start_text(self):
+        async def run_test():
+            captured_messages = []
+
+            async def fake_reply_text(text, *args, **kwargs):
+                captured_messages.append(text)
+
+            update = SimpleNamespace(
+                effective_user=SimpleNamespace(id=100, username="user"),
+                message=SimpleNamespace(text="/start", reply_text=fake_reply_text),
+                effective_message=SimpleNamespace(text="/start", reply_text=fake_reply_text),
                 callback_query=None,
             )
             context = SimpleNamespace(user_data={}, bot=SimpleNamespace(), args=[])

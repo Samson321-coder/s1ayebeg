@@ -32,7 +32,6 @@ ROLE_BUYER = "🛒 ገዢ"
 ROLE_RENTER = "🏠 ተከራይ"
 ROLE_SERVICE_PROVIDER = "🛠️ አገልግሎት ሰጪ"
 ROLE_SERVICE_SEEKER = "🔍 አገልግሎት ፈላጊ"
-
 # Owner Flow
 OWNER_MENU_MSG = "ምን ማድረግ ይፈልጋሉ?"
 OWNER_ADD_NEW = "አዲስ ምዝገባ መጀመር"
@@ -242,7 +241,7 @@ BTN_NEXT = "ቀጣይ ➡️"
 BTN_PREV = "⬅️ ወደኋላ"
 HELP_BTN = "መመሪያ/እርዳታ ℹ️"
 VIEW_ALL_PHOTOS_BTN = "📸 View all photos"
-TIMEOUT_MSG = "⏳ ጊዜው ስላለቀ ክዋኔው ተቋርጧል። እንደገና ይሞክሩ። /start"
+TIMEOUT_MSG = "⏳ ጊዜው ስላለቀ ክዋኔው ተቋርጧል። እንደገና ይጀምሩ። /start"
 
 # Price Validation
 PRICE_INVALID = "❌ ያስገቡት ዋጋ ትክክል አይደለም። ዋጋ በቁጥር ወይም በቃላት ያስገቡ (ለምሳሌ፦ 3500 ወይም «ሶስት ሺ»)"
