@@ -70,12 +70,16 @@ OWNER_ASK_PRICE = "ዋጋዉ ስንት ነው? (በቁጥር ወይም በቃላ
 
 # ── Photo Upload ──────────────────────────────────────────────────────────────
 OWNER_ASK_PHOTO = (
-    "📷 <b>የንብረቱን/የአገልግሎቱን ፎቶ ይላኩ።</b>\n\n"
+    "📷 <b>የንብረቱን/የአገልግሎቱን ፎቶ ይላኩ (እስከ {max_photos} ፎቶዎች)።</b>\n\n"
     "• ፎቶዎችን አንድ በ አንድ ይላኩ።\n"
     "• ሁሉም ፎቶዎች ሲያልቁ <b>📸 ፎቶ መጫን ጨርሻለሁ</b> ን ይጫኑ።\n"
     "• ፎቶ ከሌለዎት /skip ይጫኑ ወይም 'ዝለል' ይጻፉ።"
 )
 PHOTO_ADDED_MSG = "✅ ፎቶ {count} ተቀብሏል! ተጨማሪ ፎቶ ካለ ይላኩ፣ ካለቀ 📸 <b>ፎቶ መጫን ጨርሻለሁ</b> ን ይጫኑ።"
+PHOTO_LIMIT_REACHED_AUTO_ADVANCE = (
+    "✅ <b>ከፍተኛው የፎቶዎች ብዛት ({max_photos}) ደርሷል!</b>\n\n"
+    "ወደ ቀጣዩ ደረጃ በራስ-ሰር ተሸጋግሯል።"
+)
 DONE_PHOTOS_BTN = "📸 ፎቶ መጫን ጨርሻለሁ"
 
 PHOTO_UPLOADED = "ፎቶ ተልኳል።"
@@ -243,8 +247,10 @@ HELP_BTN = "መመሪያ/እርዳታ ℹ️"
 VIEW_ALL_PHOTOS_BTN = "📸 View all photos"
 TIMEOUT_MSG = "⏳ ጊዜው ስላለቀ ክዋኔው ተቋርጧል። እንደገና ይጀምሩ። /start"
 
-# Price Validation
+# Input Validation
 PRICE_INVALID = "❌ ያስገቡት ዋጋ ትክክል አይደለም። ዋጋ በቁጥር ወይም በቃላት ያስገቡ (ለምሳሌ፦ 3500 ወይም «ሶስት ሺ»)"
+WORD_LIMIT_EXCEEDED = "❌ የቃላት ብዛት ከ {max_words} በላይ መሆን የለበትም። (ያስገቡት የቃላት ብዛት፦ {count})\nእባክዎን አጭር አድርገው በድጋሚ ያስገቡ።"
+CHAR_LIMIT_EXCEEDED = "❌ የፊደላት/ቁጥሮች ብዛት ከ {max_chars} በላይ መሆን የለበትም። (ያስገቡት ብዛት፦ {count})\nእባክዎን አጭር አድርገው በድጋሚ ያስገቡ።"
 
 
 # Help

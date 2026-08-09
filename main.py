@@ -43,6 +43,7 @@ ADMIN_IDS = [int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.
 CHANNEL_ID = os.getenv("CHANNEL_ID")
 # Channel username for subscription check (without @)
 SUBSCRIPTION_CHANNEL = os.getenv("SUBSCRIPTION_CHANNEL", "gebeya_mereja_266")
+MAX_LISTING_PHOTOS = 5
 
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN environment variable is not set!")
@@ -480,6 +481,37 @@ async def handle_check_subscription(update: Update, context: ContextTypes.DEFAUL
                                       ]))
 
 
+# ─── Input Validation Helpers ─────────────────────────────────────────────────
+
+def count_words(text: str) -> int:
+    """Return the word count of a given string after stripping whitespace."""
+    if not text:
+        return 0
+    return len(text.strip().split())
+
+
+async def validate_input_limits(update: Update, text: str, max_words: int, max_chars: int) -> bool:
+    """Validate word and character limits. Send reply and return False if invalid."""
+    if not text or not update or not update.message:
+        return True
+
+    word_count = count_words(text)
+    if word_count > max_words:
+        await update.message.reply_text(
+            strings.WORD_LIMIT_EXCEEDED.format(max_words=max_words, count=word_count)
+        )
+        return False
+
+    char_count = len(text.strip())
+    if char_count > max_chars:
+        await update.message.reply_text(
+            strings.CHAR_LIMIT_EXCEEDED.format(max_chars=max_chars, count=char_count)
+        )
+        return False
+
+    return True
+
+
 # ─── Location helpers ─────────────────────────────────────────────────────────
 
 def parse_city_and_location(value: str):
@@ -599,11 +631,15 @@ async def owner_manage(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def owner_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (update.message.text or "").strip()
+    if not await validate_input_limits(update, text, max_words=100, max_chars=500):
+        return OWNER_TITLE
+
     category_prefix = context.user_data.get("category", "")
     if category_prefix:
-        context.user_data["title"] = f"{category_prefix} - {update.message.text}"
+        context.user_data["title"] = f"{category_prefix} - {text}"
     else:
-        context.user_data["title"] = update.message.text
+        context.user_data["title"] = text
     # Ask city — pass no pre-selected city yet
     context.user_data.pop("city", None)
     keyboard = ReplyKeyboardMarkup(location_options.get_city_keyboard(), resize_keyboard=True, one_time_keyboard=True)
@@ -654,6 +690,9 @@ async def owner_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(strings.PRICE_INVALID)
         return OWNER_PRICE
 
+    if not await validate_input_limits(update, price_text, max_words=15, max_chars=100):
+        return OWNER_PRICE
+
     # Try to extract a numeric value; if none, accept the text as-is (descriptive price)
     cleaned = re.sub(r'[^\d.]', '', price_text.replace(',', ''))
     if cleaned:
@@ -675,7 +714,7 @@ async def owner_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Reset photo list and show multi-photo prompt
     context.user_data["photos"] = []
     await update.message.reply_text(
-        strings.OWNER_ASK_PHOTO,
+        strings.OWNER_ASK_PHOTO.format(max_photos=MAX_LISTING_PHOTOS),
         reply_markup=get_photo_keyboard(),
         parse_mode='HTML'
     )
@@ -691,11 +730,18 @@ def _looks_like_phone_number(text: str) -> bool:
 
 
 async def owner_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle incoming photos — keep collecting until user presses 'Finished'."""
+    """Handle incoming photos — keep collecting until user presses 'Finished' or reaches MAX_LISTING_PHOTOS."""
     if "photos" not in context.user_data:
         context.user_data["photos"] = []
 
     if update.message.photo:
+        if len(context.user_data["photos"]) >= MAX_LISTING_PHOTOS:
+            await update.message.reply_text(
+                strings.PHOTO_LIMIT_REACHED_AUTO_ADVANCE.format(max_photos=MAX_LISTING_PHOTOS),
+                parse_mode='HTML'
+            )
+            return await owner_done_photo(update, context)
+
         try:
             photo_file = await update.message.photo[-1].get_file()
             photo_bytes = await photo_file.download_as_bytearray()
@@ -708,6 +754,14 @@ async def owner_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         context.user_data["photos"].append(photo_id)
         count = len(context.user_data["photos"])
+
+        if count >= MAX_LISTING_PHOTOS:
+            await update.message.reply_text(
+                strings.PHOTO_LIMIT_REACHED_AUTO_ADVANCE.format(max_photos=MAX_LISTING_PHOTOS),
+                parse_mode='HTML'
+            )
+            return await owner_done_photo(update, context)
+
         await update.message.reply_text(
             strings.PHOTO_ADDED_MSG.format(count=count),
             reply_markup=get_photo_keyboard(),
@@ -737,7 +791,7 @@ async def owner_photo_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await owner_contact(update, context)
 
     await update.message.reply_text(
-        strings.OWNER_ASK_PHOTO,
+        strings.OWNER_ASK_PHOTO.format(max_photos=MAX_LISTING_PHOTOS),
         reply_markup=get_photo_keyboard(),
         parse_mode='HTML'
     )
@@ -768,7 +822,10 @@ async def owner_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.contact:
         context.user_data["contact"] = update.message.contact.phone_number
     else:
-        context.user_data["contact"] = update.message.text
+        text = update.message.text.strip() if update.message.text else ""
+        if not await validate_input_limits(update, text, max_words=10, max_chars=50):
+            return OWNER_CONTACT
+        context.user_data["contact"] = text
 
     user_id = update.effective_user.id
 
@@ -830,7 +887,9 @@ async def owner_submit_txid(update: Update, context: ContextTypes.DEFAULT_TYPE):
         display_txid = "[ክፍያ ስክሪንሾት ተልኳል / Screenshot]"
     else:
         payment_photo_id = None
-        txid = update.message.text
+        txid = update.message.text.strip() if update.message.text else ""
+        if not await validate_input_limits(update, txid, max_words=10, max_chars=100):
+            return OWNER_PAYMENT
         display_txid = txid
 
     listing_id = context.user_data.get("listing_id")
@@ -1077,7 +1136,10 @@ async def search_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def execute_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.message.text.strip()
+    query = update.message.text.strip() if update.message.text else ""
+    if not await validate_input_limits(update, query, max_words=15, max_chars=100):
+        return SEARCH_QUERY
+
     if ',' in query:
         city_query, neighborhood_query = [part.strip() for part in query.split(',', 1)]
     else:
@@ -1134,9 +1196,11 @@ async def seeker_looking_for_start(update: Update, context: ContextTypes.DEFAULT
 
 async def seeker_looking_for_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Save the description/price text and ask for contact."""
-    desc = update.message.text.strip()
+    desc = update.message.text.strip() if update.message.text else ""
     if not desc:
         await update.message.reply_text(strings.SEEKER_ASK_LOOKING_FOR, parse_mode='HTML')
+        return SEEKER_LOOKING_FOR_DESC
+    if not await validate_input_limits(update, desc, max_words=100, max_chars=500):
         return SEEKER_LOOKING_FOR_DESC
     context.user_data["looking_for_desc"] = desc
     # Ask for price/budget separately
@@ -1149,9 +1213,11 @@ async def seeker_looking_for_description(update: Update, context: ContextTypes.D
 
 async def seeker_looking_for_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Save the price/budget and ask for contact."""
-    price = update.message.text.strip()
+    price = update.message.text.strip() if update.message.text else ""
     if not price:
         await update.message.reply_text(strings.SEEKER_ASK_LOOKING_FOR_PRICE)
+        return SEEKER_LOOKING_FOR_PRICE
+    if not await validate_input_limits(update, price, max_words=15, max_chars=100):
         return SEEKER_LOOKING_FOR_PRICE
     context.user_data["looking_for_price"] = price
     await update.message.reply_text(
@@ -1166,7 +1232,9 @@ async def seeker_looking_for_contact(update: Update, context: ContextTypes.DEFAU
     if update.message.contact:
         contact = update.message.contact.phone_number
     else:
-        contact = update.message.text.strip()
+        contact = update.message.text.strip() if update.message.text else ""
+        if not await validate_input_limits(update, contact, max_words=10, max_chars=50):
+            return SEEKER_LOOKING_FOR_CONTACT
 
     user_id = update.effective_user.id
     desc = context.user_data.get("looking_for_desc", "")
@@ -1218,7 +1286,9 @@ async def seeker_looking_for_txid(update: Update, context: ContextTypes.DEFAULT_
         display_txid = "[ክፍያ ስክሪንሾት ተልኳል / Screenshot]"
     else:
         payment_photo_id = None
-        txid = update.message.text.strip()
+        txid = update.message.text.strip() if update.message.text else ""
+        if not await validate_input_limits(update, txid, max_words=10, max_chars=100):
+            return LOOKING_FOR_PAYMENT
         display_txid = txid
 
     listing_id = context.user_data.get("looking_for_listing_id")
