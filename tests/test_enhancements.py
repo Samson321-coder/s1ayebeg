@@ -693,6 +693,113 @@ class EnhancementTests(unittest.TestCase):
         self.assertEqual(main.get_looking_for_title("service"), "ፈላጊ — አገልግሎት")
         self.assertEqual(main.get_looking_for_title(None), "ፍላጎት — ተፈላጊ")
 
+    def test_start_with_deep_link_view_existing_listing(self):
+        async def run_test():
+            listing_id = database.add_listing(
+                100,
+                "House <Special>",
+                "አዲስ አበባ - ቦሌ",
+                "5000",
+                " photo1 , photo2 ",
+                "0911000000",
+                listing_type="property",
+                property_purpose="sell",
+            )
+
+            replies = []
+            async def fake_reply_text(text, *args, **kwargs):
+                replies.append((text, kwargs))
+
+            update = SimpleNamespace(
+                effective_user=SimpleNamespace(id=555, username="viewer"),
+                message=SimpleNamespace(text=f"/start view_{listing_id}", reply_text=fake_reply_text),
+                effective_message=SimpleNamespace(text=f"/start view_{listing_id}", reply_text=fake_reply_text),
+                effective_chat=SimpleNamespace(id=555),
+                callback_query=None,
+            )
+            bot = SimpleNamespace(
+                send_photo=AsyncMock(),
+                send_message=AsyncMock(),
+                send_media_group=AsyncMock(return_value=[SimpleNamespace(message_id=1), SimpleNamespace(message_id=2)]),
+            )
+            context = SimpleNamespace(user_data={}, bot=bot, args=[f"view_{listing_id}"])
+
+            result = await main.start(update, context)
+
+            self.assertEqual(result, main.CHOOSING_ROLE)
+            bot.send_media_group.assert_awaited_once()
+            media_items = bot.send_media_group.call_args[1]["media"]
+            self.assertEqual(len(media_items), 2)
+            self.assertEqual(media_items[0].media, "photo1")
+            self.assertEqual(media_items[1].media, "photo2")
+            self.assertIn("House &lt;Special&gt;", media_items[0].caption)
+            self.assertTrue(any("ከታች ካሉት አማራጮች ይምረጡ" in r[0] for r in replies))
+
+        asyncio.run(run_test())
+
+    def test_start_with_deep_link_non_existent_listing(self):
+        async def run_test():
+            replies = []
+            async def fake_reply_text(text, *args, **kwargs):
+                replies.append((text, kwargs))
+
+            update = SimpleNamespace(
+                effective_user=SimpleNamespace(id=555, username="viewer"),
+                message=SimpleNamespace(text="/start view_999999", reply_text=fake_reply_text),
+                effective_message=SimpleNamespace(text="/start view_999999", reply_text=fake_reply_text),
+                effective_chat=SimpleNamespace(id=555),
+                callback_query=None,
+            )
+            bot = SimpleNamespace()
+            context = SimpleNamespace(user_data={}, bot=bot, args=["view_999999"])
+
+            result = await main.start(update, context)
+
+            self.assertEqual(result, main.CHOOSING_ROLE)
+            self.assertTrue(any("ተሰርዟል" in r[0] for r in replies))
+
+        asyncio.run(run_test())
+
+    def test_send_listing_page_media_group_fallback_on_error(self):
+        async def run_test():
+            listing = (
+                1,
+                100,
+                "House",
+                "City",
+                "5000",
+                "photo1,photo2",
+                "0911000000",
+                "sell",
+                "2026-01-01",
+                "paid",
+                0,
+                None,
+                None,
+                "property",
+            )
+            update = SimpleNamespace(
+                effective_user=SimpleNamespace(id=100),
+                effective_chat=SimpleNamespace(id=200),
+            )
+            bot = SimpleNamespace(
+                send_photo=AsyncMock(),
+                send_message=AsyncMock(),
+                send_media_group=AsyncMock(side_effect=Exception("Telegram API Error")),
+            )
+            context = SimpleNamespace(
+                user_data={"current_listings": [listing], "is_for_owner": False},
+                bot=bot,
+            )
+
+            await main.send_listing_page(update, context, 0)
+
+            # Assert fallback send_photo was called twice (once per photo)
+            self.assertEqual(bot.send_photo.call_count, 2)
+
+        asyncio.run(run_test())
+
 if __name__ == "__main__":
     unittest.main()
+
 

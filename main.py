@@ -1,4 +1,5 @@
 import os
+import html
 import logging
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -418,9 +419,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.user_data['current_listings'] = [target_listing]
                 context.user_data['is_for_owner'] = False
                 await send_listing_page(update, context, 0)
+                await update.message.reply_text(
+                    "👇 ከታች ካሉት አማራጮች ይምረጡ፦",
+                    reply_markup=get_main_keyboard()
+                )
+                return CHOOSING_ROLE
+            else:
+                await update.message.reply_text(
+                    "❌ የተጠየቀው መረጃ አልተገኘም ወይም ተሰርዟል።",
+                    reply_markup=get_main_keyboard()
+                )
                 return CHOOSING_ROLE
         except Exception as e:
             logger.error(f"Error handling deep link parameter: {e}")
+            await update.message.reply_text(
+                "❌ መረጃውን በማቅረብ ላይ ስህተት ተፈጥሯል።",
+                reply_markup=get_main_keyboard()
+            )
+            return CHOOSING_ROLE
 
     # Subscription check (skip for admins)
     if user.id not in ADMIN_IDS:
@@ -1551,15 +1567,15 @@ async def send_listing_page(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
         created_at = get_listing_created_at(item) or "ያልተገለጸ"
         text = strings.LOOKING_FOR_LISTING_TEMPLATE.format(
-            looking_for_title=get_looking_for_title(property_purpose_val),
-            category=category_val,
-            purpose=purpose_am,
-            city=city_part.strip(),
-            neighborhood=neigh_part.strip(),
-            price=item[4] or "ያልተገለጸ",
-            description=desc_val,
-            contact=item[6] or "ያልተገለጸ",
-            date=created_at
+            looking_for_title=html.escape(get_looking_for_title(property_purpose_val)),
+            category=html.escape(str(category_val)),
+            purpose=html.escape(str(purpose_am)),
+            city=html.escape(str(city_part.strip())),
+            neighborhood=html.escape(str(neigh_part.strip())),
+            price=html.escape(str(item[4] or "ያልተገለጸ")),
+            description=html.escape(str(desc_val)),
+            contact=html.escape(str(item[6] or "ያልተገለጸ")),
+            date=html.escape(str(created_at))
         ) + status_msg + page_indicator
     else:
         listing_type_am = get_listing_type_display_name(listing_type_val, property_purpose_val, item[2] if len(item) > 2 else None)
@@ -1567,13 +1583,13 @@ async def send_listing_page(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
         created_at = get_listing_created_at(item) or "ያልተገለጸ"
         text = strings.LISTING_TEMPLATE.format(
-            listing_type_title=listing_type_title,
-            title=item[2],
-            location=item[3],
-            price=item[4],
-            contact=item[6],
-            listing_type_am=listing_type_am,
-            date=created_at
+            listing_type_title=html.escape(str(listing_type_title)),
+            title=html.escape(str(item[2] or "")),
+            location=html.escape(str(item[3] or "")),
+            price=html.escape(str(item[4] or "")),
+            contact=html.escape(str(item[6] or "")),
+            listing_type_am=html.escape(str(listing_type_am)),
+            date=html.escape(str(created_at))
         ) + status_msg + page_indicator
 
     nav_row = []
@@ -1596,13 +1612,14 @@ async def send_listing_page(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         elif item[8] != 'rented':
             keyboard.append([InlineKeyboardButton(strings.OWNER_UNLIST_BTN, callback_data=f"unlist_{item[0]}")])
     reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-    photo_ids = item[5].split(",") if item[5] else []
+    photo_ids = [p.strip() for p in item[5].split(",") if p and p.strip()] if item[5] else []
 
     tx_val = get_listing_transaction_id_from_row(item)
     tx_val = str(tx_val) if tx_val is not None else ""
     if is_admin and tx_val.startswith("photo:"):
-        payment_photo = tx_val.split(":", 1)[1]
-        photo_ids.append(payment_photo)
+        payment_photo = tx_val.split(":", 1)[1].strip()
+        if payment_photo:
+            photo_ids.append(payment_photo)
 
     chat_id = update.effective_chat.id
     func = context.bot.send_photo
@@ -1611,19 +1628,43 @@ async def send_listing_page(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     send_args = {"chat_id": chat_id}
 
+    caption_text = text[:997] + "..." if len(text) > 1000 else text
+
     if len(photo_ids) > 1:
-        media = [InputMediaPhoto(media=photo_ids[0], caption=text, parse_mode='HTML')]
+        media = [InputMediaPhoto(media=photo_ids[0], caption=caption_text, parse_mode='HTML')]
         for pid in photo_ids[1:]:
             media.append(InputMediaPhoto(media=pid))
 
-        sent_messages = await func_media_group(media=media, **send_args)
-        context.user_data['last_media_group_ids'] = [m.message_id for m in sent_messages]
+        try:
+            sent_messages = await func_media_group(media=media, **send_args)
+            context.user_data['last_media_group_ids'] = [m.message_id for m in sent_messages]
 
-        if keyboard:
-            await func_text(text="መቆጣጠሪያ (Controls):", reply_markup=reply_markup, **send_args)
+            if keyboard:
+                await func_text(text="መቆጣጠሪያ (Controls):", reply_markup=reply_markup, **send_args)
+            if len(text) > 1000:
+                await func_text(text=text, parse_mode='HTML', **send_args)
+        except Exception as e:
+            logger.error(f"Failed to send media group for listing {listing_id}: {e}")
+            context.user_data['last_media_group_ids'] = []
+            try:
+                await func(photo=photo_ids[0], caption=caption_text, reply_markup=reply_markup, parse_mode='HTML', **send_args)
+                for pid in photo_ids[1:]:
+                    try:
+                        await func(photo=pid, **send_args)
+                    except Exception as pe:
+                        logger.warning(f"Failed to send fallback photo {pid}: {pe}")
+            except Exception as fe:
+                logger.error(f"Fallback single photo failed for listing {listing_id}: {fe}")
+                await func_text(text=text, reply_markup=reply_markup, parse_mode='HTML', **send_args)
     elif len(photo_ids) == 1:
         context.user_data['last_media_group_ids'] = []
-        await func(photo=photo_ids[0], caption=text, reply_markup=reply_markup, parse_mode='HTML', **send_args)
+        try:
+            await func(photo=photo_ids[0], caption=caption_text, reply_markup=reply_markup, parse_mode='HTML', **send_args)
+            if len(text) > 1000:
+                await func_text(text=text, parse_mode='HTML', **send_args)
+        except Exception as e:
+            logger.error(f"Failed to send photo for listing {listing_id}: {e}")
+            await func_text(text=text, reply_markup=reply_markup, parse_mode='HTML', **send_args)
     else:
         context.user_data['last_media_group_ids'] = []
         await func_text(text=text, reply_markup=reply_markup, parse_mode='HTML', **send_args)
